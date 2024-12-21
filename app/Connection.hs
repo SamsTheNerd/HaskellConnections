@@ -1,5 +1,8 @@
 module Connection where
 import Styling
+import System.Console.Haskeline (CompletionFunc, Completion (Completion), completeWord)
+import Data.List (isPrefixOf)
+import Data.Char (toUpper, toLower)
 
 -- Connection has a label and a list of words in that category. It is expected to have 4 words.
 data Connection = Connection String Char [String] deriving Show
@@ -80,3 +83,20 @@ longestWord game = foldr (max . length) 0 (allWords game)
 -- gets the category that the word appears in
 catOfWord :: Game -> String -> Connection
 catOfWord game guess = (snd . head) (filter (\ctn -> guess `elem` (cnwrds . snd) ctn) (getCtns game))
+
+makeGameCompletion :: Game -> CompletionFunc IO
+makeGameCompletion game = completeWord Nothing [' '] (gameCmplF game)
+
+gameCmplF :: Monad m => Game -> String -> m [Completion]
+gameCmplF game str' = return cmpls
+    where str = toUpper <$> str' 
+          validWords = filter (isPrefixOf str) (rWords game) -- filter remaining words to possible matches
+          cmpls = case validWords of -- weird behavior with case sensitivity and multiple matches. it autocompletes the caps before suggesting all options
+            [w] -> [Completion w w False] -- single valid, just use
+            _ -> (\w -> Completion (matchCaseCmpl str' w) w False) <$> validWords -- multiple options, make them all start with input
+
+
+matchCaseCmpl :: [a] -> [a] -> [a]
+matchCaseCmpl [] ws = ws
+matchCaseCmpl (g:gs) (_:ws) = g : matchCaseCmpl gs ws
+matchCaseCmpl _ [] = []

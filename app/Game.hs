@@ -68,8 +68,8 @@ displayMistakesLeft game = replicate buf ' ' ++
 
 -- display an ending message and guess history emojis
 displayEndGame :: Game -> String
-displayEndGame game = [fColor fPurple ++ "Perfect!", fColor fCyan ++ "You win yay!", 
-    fColor fGreen ++ "Good job!", fColor fYellow ++ "That was close!!", fColor fRed ++ "Better luck next time :/"] 
+displayEndGame game = [fColor fPurple ++ "Perfect!", fColor fCyan ++ "You win yay!",
+    fColor fGreen ++ "Good job!", fColor fYellow ++ "That was close!!", fColor fRed ++ "Better luck next time :/"]
     !! fromIntegral (mistakeCount game) ++ fReset
     ++ "\n" ++ foldMap ((++ "\n") . foldMap (getHeartEmoji . catOfWord game)) ((reverse . guessHistory) game)
 
@@ -98,7 +98,7 @@ isValidGuess game guess = elem guess $ rWords game
 
 -- reveal all categories for final display
 revealAll :: Game -> Game
-revealAll (Game ctns mistakes gHis) = Game (map (\x -> (True, snd x)) ctns) mistakes gHis 
+revealAll (Game ctns mistakes gHis) = Game (map (\x -> (True, snd x)) ctns) mistakes gHis
 
 -- takes a *valid* guess and a game state and returns a new game state.
 makeGuess :: Game -> [String] -> Game
@@ -164,7 +164,7 @@ doInputLoop game cGuesses extInfo = do
     -- else return ()
     outputStrLn "Enter a guess/command or type :help for more info"
     userInput <- fromMaybe "" <$> getInputLine "> "
-    
+
     case userInput of
         ":help" -> printHelp >> doInputLoop game cGuesses (return ())
         ":del" -> doInputLoop game (tail cGuesses) (return ())
@@ -180,8 +180,8 @@ startInputLoop :: Game -> InputT IO [String]
 startInputLoop game = doInputLoop game [] (return ())
 
 -- runs the game loop until the game is over
-doGameLoop :: Game -> InputT IO ()
-doGameLoop origGame = do
+doGameLoop :: Game -> IO ()
+doGameLoop origGame = runInputT (setComplete (makeGameCompletion origGame) defaultSettings) $ do
     -- Show game state
     -- putStr "\n" >> print origGame
     outputStrLn (unwords $ replicate 40 "\n")
@@ -199,21 +199,25 @@ doGameLoop origGame = do
         -- Act on guess
         let nextGame = makeGuess origGame guesses
         -- Loop
-        doGameLoop nextGame
+        liftIO $ doGameLoop nextGame
 
--- starts the game
-connections :: InputT IO ()
-connections = do
-    outputStrLn (unwords $ replicate 40 "\n")
-    printTitle
-    ctns <- getPuzzle
-    doGameLoop $ newGame ctns
+-- runs a game of connections (mostly handling io dispatch)
+-- runConnectionsGame :: Game -> IO ()
+-- runConnectionsGame game = do
+--         let gameLoopT = doGameLoop game
+--         runInputT (setComplete (makeGameCompletion game) defaultSettings) gameLoopT
+
+-- start up a game of connections from the title screen
+connections :: IO ()
+connections = runInputT defaultSettings (do
+                    outputStrLn (unwords $ replicate 40 "\n")
+                    printTitle
+                    newGame <$> getPuzzle) >>= doGameLoop
 
 -- a helper function for testing that starts up the game skipping the title/puzzle select screen.
-testconnections :: InputT IO ()
-testconnections = do
+testconnections :: IO ()
+testconnections = runInputT defaultSettings (do
     fc <- liftIO $ readFile "puzzle447.txt"
-    ctns <- case readPuzzle fc of
+    case readPuzzle fc of
         (Just ctns) -> return ctns
-        Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle
-    doGameLoop $ newGame ctns
+        Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle) >>= (doGameLoop . newGame)
