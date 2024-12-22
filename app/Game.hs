@@ -3,12 +3,15 @@ module Game where
 import Connection
 import Styling
 import Utils
-import Data.Char (toUpper)
+import Data.Char (toUpper, isSpace)
 import System.Console.Haskeline hiding (display)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Maybe (fromMaybe)
-import Control.Monad.State (StateT, MonadState (get, put), MonadTrans (lift), gets, modify, execStateT, void)
+import Control.Monad.State (StateT, MonadState (get, put), MonadTrans (lift), gets, modify, execStateT)
 import Control.Arrow (Arrow(second))
+import Control.Monad (when, void)
+import Data.Function (applyWhen)
+import Data.List (dropWhileEnd, delete)
 
 -- turns a word into a fancy little card. boolean for if it's selected or not
 makeWordCard :: Game -> Bool -> String -> [String]
@@ -119,8 +122,8 @@ makeGuess = do
 -- prompts the user for a connections puzzle
 getPuzzle :: InputT IO [Connection]
 getPuzzle = do
-    outputStr "Enter Puzzle Filename > "
-    filename <- (fromMaybe "") <$> (getInputLine "> ")
+    outputStr "Enter Puzzle Filename "
+    filename <- (dropWhileEnd isSpace . fromMaybe "") <$> (getInputLine "> ")
     fc <- liftIO $ readFile filename -- TODO: proper error handling would be nice here.
     case readPuzzle fc of
         (Just ctns) -> return ctns
@@ -162,26 +165,25 @@ printTitle = outputStr $ foldMap (++ "\n") [
 -- otherwise dispatches to commands and in-between printing
 doInputLoop :: InputT GameIO () -> InputT GameIO ()
 doInputLoop extInfo = do
-    -- get >>= \(game, cGuesses)
     (game, cGuesses) <- lift get
     -- if showFirst then 
     outputStrLn (unwords $ replicate 40 "\n")
     outputStrLn (displayWithGuesses game cGuesses)
     outputStrLn ""
     extInfo
-    -- else return ()
     outputStrLn "Enter a guess/command or type :help for more info"
     userInput <- fromMaybe "" <$> getInputLine "> "
 
+    let sGuess = replace (== ' ') (const '_') $ map toUpper userInput
     case userInput of
+        _ | all (isSpace) userInput -> doInputLoop (return ())
         ":help" -> gameIOT printHelp >> doInputLoop (return ())
-        ":del" -> lift (modify (second tail)) >> doInputLoop (return ())
+        ":del" -> lift (modify (second (drop 1))) >> doInputLoop (return ())
         ":clear" -> startInputLoop
         (':':_) -> outputStrLn "Unrecognized Command" >> gameIOT printHelp >> doInputLoop (return ())
-        guess -> if isValidGuess game sGuess then
-            lift (modify (second (sGuess:))) >> if length cGuesses == 3 then return () else doInputLoop (return ())
-            else doInputLoop (outputStrLn ("Guess \"" ++ guess ++ "\" is not in the game or has already been guessed"))
-            where sGuess = replace (== ' ') (const '_') $ map toUpper guess
+        _ | sGuess `elem` cGuesses -> lift (modify (second (delete sGuess))) >> doInputLoop (return ())
+        _ | isValidGuess game sGuess -> lift (modify (second (sGuess:))) >> when (length cGuesses /= 3) (doInputLoop $ return ())
+        guess -> doInputLoop (outputStrLn ("Guess \"" ++ guess ++ "\" is not in the game or has already been guessed"))
 
 -- starts the input loop, returning an IO locked final guesses string.
 startInputLoop :: InputT GameIO ()

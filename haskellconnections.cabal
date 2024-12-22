@@ -68,7 +68,7 @@ executable haskellconnections
     other-extensions: LambdaCase
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.17.2.1, haskeline, transformers, 
+    build-depends:    base >=4.20.0.0, haskeline, transformers, 
                       composition-extra, mtl,
 
     -- Directories containing source files.
