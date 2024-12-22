@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Game where
 import Connection
 import Styling
@@ -6,6 +7,8 @@ import Data.Char (toUpper)
 import System.Console.Haskeline hiding (display)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Maybe (fromMaybe)
+import Control.Monad.State (StateT, MonadState (get, put), MonadTrans (lift), gets, modify, execStateT, void)
+import Control.Arrow (Arrow(second))
 
 -- turns a word into a fancy little card. boolean for if it's selected or not
 makeWordCard :: Game -> Bool -> String -> [String]
@@ -101,14 +104,17 @@ revealAll :: Game -> Game
 revealAll (Game ctns mistakes gHis) = Game (map (\x -> (True, snd x)) ctns) mistakes gHis
 
 -- takes a *valid* guess and a game state and returns a new game state.
-makeGuess :: Game -> [String] -> Game
-makeGuess game guesses = Game newCtns
-    (if guessedCats newCtns == (guessedCats . getCtns) game -- increment guess counter if 
-        then mistakeCount game + 1 else mistakeCount game) (guesses:guessHistory game)
-    where newCtns = map (\gctn -> case gctn of
-            (True, _) -> gctn -- if it's already guessed just ignore
-            (False, ctn@(Connection _ _ ws)) -> (all (`elem` guesses) ws, ctn) -- check if the guess contains everything in that category
-           ) (getCtns game)
+makeGuess :: GameIO ()
+makeGuess = do
+    (game, guesses) <- get
+    let newCtns = map (\case
+                    gctn@(True, _) -> gctn -- if it's already guessed just ignore
+                    (False, ctn@(Connection _ _ ws)) -> (all (`elem` guesses) ws, ctn) -- check if the guess contains everything in that category
+                ) (getCtns game)
+    let game' = Game newCtns
+                (if guessedCats newCtns == (guessedCats . getCtns) game -- increment guess counter if 
+                    then mistakeCount game + 1 else mistakeCount game) (guesses:guessHistory game)
+    put (game', [])
 
 -- prompts the user for a connections puzzle
 getPuzzle :: InputT IO [Connection]
@@ -154,8 +160,10 @@ printTitle = outputStr $ foldMap (++ "\n") [
 
 -- eventually returns a valid guess input. 
 -- otherwise dispatches to commands and in-between printing
-doInputLoop :: Game -> [String] -> InputT IO () -> InputT IO [String]
-doInputLoop game cGuesses extInfo = do
+doInputLoop :: InputT GameIO () -> InputT GameIO ()
+doInputLoop extInfo = do
+    -- get >>= \(game, cGuesses)
+    (game, cGuesses) <- lift get
     -- if showFirst then 
     outputStrLn (unwords $ replicate 40 "\n")
     outputStrLn (displayWithGuesses game cGuesses)
@@ -166,24 +174,24 @@ doInputLoop game cGuesses extInfo = do
     userInput <- fromMaybe "" <$> getInputLine "> "
 
     case userInput of
-        ":help" -> printHelp >> doInputLoop game cGuesses (return ())
-        ":del" -> doInputLoop game (tail cGuesses) (return ())
-        ":clear" -> startInputLoop game
-        (':':_) -> outputStrLn "Unrecognized Command" >> printHelp >> doInputLoop game cGuesses (return ())
+        ":help" -> gameIOT printHelp >> doInputLoop (return ())
+        ":del" -> lift (modify (second tail)) >> doInputLoop (return ())
+        ":clear" -> startInputLoop
+        (':':_) -> outputStrLn "Unrecognized Command" >> gameIOT printHelp >> doInputLoop (return ())
         guess -> if isValidGuess game sGuess then
-            if length cGuesses == 3 then return (sGuess:cGuesses) else doInputLoop game (sGuess:cGuesses) (return ())
-            else doInputLoop game cGuesses (outputStrLn ("Guess \"" ++ guess ++ "\" is not in the game or has already been guessed"))
+            lift (modify (second (sGuess:))) >> if length cGuesses == 3 then return () else doInputLoop (return ())
+            else doInputLoop (outputStrLn ("Guess \"" ++ guess ++ "\" is not in the game or has already been guessed"))
             where sGuess = replace (== ' ') (const '_') $ map toUpper guess
 
 -- starts the input loop, returning an IO locked final guesses string.
-startInputLoop :: Game -> InputT IO [String]
-startInputLoop game = doInputLoop game [] (return ())
+startInputLoop :: InputT GameIO ()
+startInputLoop = doInputLoop (return ())
 
 -- runs the game loop until the game is over
-doGameLoop :: Game -> IO ()
-doGameLoop origGame = runInputT (setComplete (makeGameCompletion origGame) defaultSettings) $ do
+doGameLoop :: InputT GameIO ()
+doGameLoop = do
+    origGame <- lift $ gets fst
     -- Show game state
-    -- putStr "\n" >> print origGame
     outputStrLn (unwords $ replicate 40 "\n")
     outputStrLn $ display origGame
 
@@ -193,31 +201,28 @@ doGameLoop origGame = runInputT (setComplete (makeGameCompletion origGame) defau
         (outputStrLn . displayEndGame) origGame -- print like, congrats and emoji grid
     else do
         -- Get guess
-        -- guess <- getValidGuess origGame
-        guesses <- startInputLoop origGame
-
+        startInputLoop
         -- Act on guess
-        let nextGame = makeGuess origGame guesses
+        lift makeGuess
         -- Loop
-        liftIO $ doGameLoop nextGame
+        doGameLoop
 
 -- runs a game of connections (mostly handling io dispatch)
--- runConnectionsGame :: Game -> IO ()
--- runConnectionsGame game = do
---         let gameLoopT = doGameLoop game
---         runInputT (setComplete (makeGameCompletion game) defaultSettings) gameLoopT
+runConnectionsGame :: Game -> IO ()
+runConnectionsGame game = void (execStateT gIO (game, []))
+    where gIO = runInputT (setComplete makeGameCompletion defaultSettings) doGameLoop
+    
 
 -- start up a game of connections from the title screen
 connections :: IO ()
-connections = runInputT defaultSettings (do
-                    outputStrLn (unwords $ replicate 40 "\n")
-                    printTitle
-                    newGame <$> getPuzzle) >>= doGameLoop
+connections = runInputT defaultSettings $ (do
+                    outputStrLn (unwords $ replicate 40 "\n"); printTitle
+                    newGame <$> getPuzzle) >>= (lift . runConnectionsGame)
 
 -- a helper function for testing that starts up the game skipping the title/puzzle select screen.
 testconnections :: IO ()
-testconnections = runInputT defaultSettings (do
+testconnections = runInputT defaultSettings $ (do
     fc <- liftIO $ readFile "puzzle447.txt"
-    case readPuzzle fc of
+    newGame <$> case readPuzzle fc of
         (Just ctns) -> return ctns
-        Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle) >>= (doGameLoop . newGame)
+        Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle) >>= (lift . runConnectionsGame)

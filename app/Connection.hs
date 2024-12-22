@@ -1,8 +1,10 @@
 module Connection where
 import Styling
-import System.Console.Haskeline (CompletionFunc, Completion (Completion), completeWord)
+import System.Console.Haskeline (CompletionFunc, Completion (Completion), completeWord, InputT, getHistory, defaultSettings, setComplete, runInputT, putHistory)
 import Data.List (isPrefixOf)
 import Data.Char (toUpper, toLower)
+import Control.Monad.State (StateT, gets, state, MonadState (get), MonadTrans (lift), MonadIO (liftIO))
+import Control.Monad.Syntax.Two ((==<<))
 
 -- Connection has a label and a list of words in that category. It is expected to have 4 words.
 data Connection = Connection String Char [String] deriving Show
@@ -84,17 +86,29 @@ longestWord game = foldr (max . length) 0 (allWords game)
 catOfWord :: Game -> String -> Connection
 catOfWord game guess = (snd . head) (filter (\ctn -> guess `elem` (cnwrds . snd) ctn) (getCtns game))
 
-makeGameCompletion :: Game -> CompletionFunc IO
-makeGameCompletion game = completeWord Nothing [' '] (gameCmplF game)
+type GameIO = StateT (Game, [String]) IO
 
-gameCmplF :: Monad m => Game -> String -> m [Completion]
-gameCmplF game str' = return cmpls
-    where str = toUpper <$> str' 
-          validWords = filter (isPrefixOf str) (rWords game) -- filter remaining words to possible matches
-          cmpls = case validWords of -- weird behavior with case sensitivity and multiple matches. it autocompletes the caps before suggesting all options
-            [w] -> [Completion w w False] -- single valid, just use
-            _ -> (\w -> Completion (matchCaseCmpl str' w) w False) <$> validWords -- multiple options, make them all start with input
+gameIOT :: InputT IO a -> InputT GameIO a
+gameIOT inm = do
+    hist <- getHistory
+    st <- lift get
+    let inIO = runInputT (setComplete (makeGameCompletion' st) defaultSettings) (putHistory hist >> inm)
+    liftIO inIO
 
+makeGameCompletion :: CompletionFunc GameIO
+makeGameCompletion = completeWord Nothing [' '] (gameCmplF ==<< get)
+
+makeGameCompletion' :: Monad m => (Game, [String]) -> CompletionFunc m
+makeGameCompletion' st = completeWord Nothing [' '] (gameCmplF st)
+
+gameCmplF :: Monad m => (Game, [String]) -> String -> m [Completion]
+gameCmplF (game, _) str' = do
+        let str = toUpper <$> str' 
+        let validWords = filter (isPrefixOf str) (rWords game) -- filter remaining words to possible matches
+        let cmpls = case validWords of -- weird behavior with case sensitivity and multiple matches. it autocompletes the caps before suggesting all options
+                [w] -> [Completion w w False] -- single valid, just use
+                _ -> (\w -> Completion (matchCaseCmpl str' w) w False) <$> validWords -- multiple options, make them all start with input
+        return cmpls
 
 matchCaseCmpl :: [a] -> [a] -> [a]
 matchCaseCmpl [] ws = ws
