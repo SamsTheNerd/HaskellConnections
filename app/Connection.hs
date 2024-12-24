@@ -9,7 +9,7 @@ import Control.Monad.Syntax.Two ((==<<))
 import Data.Aeson
 import qualified Data.Aeson.Key as Key
 import Data.Time (Day)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 
 -- Connection has a label and a list of words in that category. It is expected to have 4 words.
 data Connection = Connection String Char [String] deriving (Show,Read)
@@ -63,15 +63,14 @@ data GameMeta = NYTMeta Int Day
 
 -- Game has a list of connections and a marker for if they've been guessed yet
 -- and a guesses counter. It is expected to have 4 connections. It also keeps a list of past guesses
--- data Game = Game [(Bool, Connection)] Integer [[String]] GameMeta deriving Show
 data Game = Game {
-    categories :: [(Bool, Connection)],
+    categories :: [(Maybe Int, Connection)],
     mistakes   :: Integer,
     guessHistory :: [[String]],
     gameMeta :: GameMeta
     } deriving Show
 
-modifyCats :: ([(Bool, Connection)] -> [(Bool, Connection)]) -> Game -> Game
+modifyCats :: ([(Maybe Int, Connection)] -> [(Maybe Int, Connection)]) -> Game -> Game
 modifyCats f game = game {categories = (f $ categories game)}
 
 modifyMistakes :: (Integer -> Integer) -> Game -> Game
@@ -87,12 +86,12 @@ allWords game = concatMap (cnwrds . snd) (categories game)
 -- gets all remaining (unguessed) words in the game
 rWords :: Game -> [String]
 rWords game = concatMap (\ctns -> case ctns of
-    (False, ctn) -> cnwrds ctn
+    (Nothing, ctn) -> cnwrds ctn
     _ -> []) (categories game)
 
 -- returns a count of how many categories have been guessed
-guessedCats :: [(Bool, Connection)] -> Int
-guessedCats = foldr (\t s -> if fst t then s + 1 else s) 0
+guessedCats :: [(Maybe Int, Connection)] -> Int
+guessedCats = foldr (\t s -> if not . isNothing . fst $ t then s + 1 else s) 0
 
 -- gets the length of the longest word in the game
 longestWord :: Game -> Int

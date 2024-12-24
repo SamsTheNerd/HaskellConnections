@@ -6,11 +6,11 @@ import Utils
 import Data.Char (toUpper, isSpace)
 import System.Console.Haskeline hiding (display)
 import Control.Monad.IO.Class (MonadIO(liftIO))
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing, fromJust)
 import Control.Monad.State (MonadState (get, put), MonadTrans (lift), modify, execStateT, gets)
 import Control.Arrow (Arrow(second))
 import Control.Monad (when, void)
-import Data.List (dropWhileEnd, delete)
+import Data.List (dropWhileEnd, delete, sortOn)
 import RemoteLoader (getGameData, fetchGames)
 import Data.Foldable (find)
 import System.FilePath (isValid)
@@ -62,9 +62,11 @@ displayRemWords game guesses = foldMap ((++ "") . foldMap (++ "\n") . foldr (zip
 
 -- display the correct guesses
 displayGuessed  :: Game -> String
-displayGuessed game = foldMap ((++ "") . (\ctn ->
-        if fst ctn then makeCategoryCard game $ snd ctn else ""
-    )) (categories game)
+displayGuessed game = foldr (++) "" $ -- combine cards
+    map (makeCategoryCard game . snd) . -- turn categories into cards
+    sortOn (fromJust . fst) . -- sort by order found
+    filter (not . isNothing . fst) $ -- filter out unsolved categories
+    categories game
 
 -- display the mistakes counter
 displayMistakesLeft :: Game -> String
@@ -101,7 +103,7 @@ readPuzzle str = mapM (\line -> case words line of
 
 -- makes a new game with the given connections.
 newGame :: [Connection] -> GameMeta -> Game
-newGame ctns = Game (zip (repeat False) ctns) 0 [[]] 
+newGame ctns = Game (zip (repeat Nothing) ctns) 0 [[]] 
 
 -- takes a game state and a guess string and returns an error message if one is needed
 isValidGuess :: Game -> String -> Bool
@@ -109,20 +111,22 @@ isValidGuess game guess = elem guess $ rWords game
 
 -- reveal all categories for final display
 revealAll :: Game -> Game
--- revealAll (Game ctns mis gHis gm) = Game (map (\x -> (True, snd x)) ctns) mis gHis gm
-revealAll game = game { categories = (map (\x -> (True, snd x)) $ categories game)} 
+revealAll game = modifyCats ((zipWith) (\n cats -> case cats of
+    (Nothing, ctns) -> (Just n, ctns)
+    _ -> cats
+    ) ([(guessedCats . categories $ game)..] :: [Int])) game
 
 -- applies the guess sitting in GameIO and returns if it was one away 
 makeGuess :: GameIO ()
 makeGuess = do
     game <- get
     let guesses = head $ guessHistory game
-    let newCtns' = map (\case
-                    (True, ctn) -> (4, ctn) -- if it's already guessed just ignore
-                    (False, ctn@(Connection _ _ ws)) -> (length $ filter (`elem` guesses) ws, ctn) -- check if the guess contains everything in that category
+    let numGuessed = (guessedCats . categories) game
+    let newCtns = map (\case
+                    (Nothing, ctn@(Connection _ _ ws)) -> (if all (`elem` guesses) ws then Just numGuessed else Nothing, ctn) -- check if the guess contains everything in that category
+                    (n, ctn) -> (n, ctn) -- if it's already guessed just ignore
                 ) (categories game)
-    let newCtns = map (\(n, ctn) -> (n == 4, ctn)) newCtns'
-    let game' = (applyWhen (guessedCats newCtns == (guessedCats . categories) game) (modifyMistakes (+1))) -- bump mistakes
+    let game' = (applyWhen (guessedCats newCtns == numGuessed) (modifyMistakes (+1))) -- bump mistakes
                 . (modifyGuessHistory ([]:))  -- add guess
                 $ (game {categories = newCtns} ) -- set new connections 
     put game'
