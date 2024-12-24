@@ -1,12 +1,15 @@
+{-# LANGUAGE LambdaCase #-}
 module Connection where
 import Styling
 import System.Console.Haskeline (CompletionFunc, Completion (Completion), completeWord, InputT, getHistory, defaultSettings, setComplete, runInputT, putHistory)
-import Data.List (isPrefixOf)
-import Data.Char (toUpper, toLower)
-import Control.Monad.State (StateT, gets, state, MonadState (get), MonadTrans (lift), MonadIO (liftIO))
+import Data.List (isPrefixOf, unsnoc)
+import Data.Char (toUpper)
+import Control.Monad.State (StateT, MonadState (get), MonadTrans (lift), MonadIO (liftIO))
 import Control.Monad.Syntax.Two ((==<<))
 import Data.Aeson
 import qualified Data.Aeson.Key as Key
+import Data.Time (Day)
+import Data.Maybe (fromMaybe)
 
 -- Connection has a label and a list of words in that category. It is expected to have 4 words.
 data Connection = Connection String Char [String] deriving (Show,Read)
@@ -53,31 +56,39 @@ getHeartEmoji ctn = case tier ctn of
 cnwrds :: Connection -> [String]
 cnwrds (Connection _ _ w) = w
 
+
+data GameMeta = NYTMeta Int Day
+              | LocalMeta
+              deriving Show
+
 -- Game has a list of connections and a marker for if they've been guessed yet
 -- and a guesses counter. It is expected to have 4 connections. It also keeps a list of past guesses
-data Game = Game [(Bool, Connection)] Integer [[String]] deriving Show
+-- data Game = Game [(Bool, Connection)] Integer [[String]] GameMeta deriving Show
+data Game = Game {
+    categories :: [(Bool, Connection)],
+    mistakes   :: Integer,
+    guessHistory :: [[String]],
+    gameMeta :: GameMeta
+    } deriving Show
 
--- gets the connections for this game with a boolean for if it's been successfully guessed yet
-getCtns :: Game -> [(Bool, Connection)]
-getCtns (Game ctns _ _) = ctns
+modifyCats :: ([(Bool, Connection)] -> [(Bool, Connection)]) -> Game -> Game
+modifyCats f game = game {categories = (f $ categories game)}
 
--- gets the number of mistakes made in the game.
-mistakeCount :: Game -> Integer
-mistakeCount (Game _ g _) = g
+modifyMistakes :: (Integer -> Integer) -> Game -> Game
+modifyMistakes f game = game { mistakes = (f $ mistakes game)}
 
--- gets the guess history
-guessHistory :: Game -> [[String]]
-guessHistory (Game _ _ h) = h
+modifyGuessHistory :: ([[String]] -> [[String]]) -> Game -> Game
+modifyGuessHistory f game = game {guessHistory = (f $ guessHistory game)}
 
 -- gets all words in the game
 allWords :: Game -> [String]
-allWords game = concatMap (cnwrds . snd) (getCtns game)
+allWords game = concatMap (cnwrds . snd) (categories game)
 
 -- gets all remaining (unguessed) words in the game
 rWords :: Game -> [String]
 rWords game = concatMap (\ctns -> case ctns of
     (False, ctn) -> cnwrds ctn
-    _ -> []) (getCtns game)
+    _ -> []) (categories game)
 
 -- returns a count of how many categories have been guessed
 guessedCats :: [(Bool, Connection)] -> Int
@@ -89,9 +100,19 @@ longestWord game = foldr (max . length) 0 (allWords game)
 
 -- gets the category that the word appears in
 catOfWord :: Game -> String -> Connection
-catOfWord game guess = (snd . head) (filter (\ctn -> guess `elem` (cnwrds . snd) ctn) (getCtns game))
+catOfWord game guess = (snd . head) (filter (\ctn -> guess `elem` (cnwrds . snd) ctn) (categories game))
 
-type GameIO = StateT (Game, [String]) IO
+-- getOngoingGuess :: Game -> [String]
+-- -- getOngoingGuess game = if length oguess == 4 then [] else oguess
+-- --     where oguess = fromMaybe [] $ snd <$> (unsnoc . guessHistory) game
+-- getOngoingGuess = last . guessHistory
+
+modifyOngoingGuess :: ([String] -> [String]) -> Game -> Game
+modifyOngoingGuess f = modifyGuessHistory (\case
+        [] -> []
+        (x:xs) -> f x: xs)
+
+type GameIO = StateT Game IO
 
 gameIOT :: InputT IO a -> InputT GameIO a
 gameIOT inm = do
@@ -103,11 +124,11 @@ gameIOT inm = do
 makeGameCompletion :: CompletionFunc GameIO
 makeGameCompletion = completeWord Nothing [' '] (gameCmplF ==<< get)
 
-makeGameCompletion' :: Monad m => (Game, [String]) -> CompletionFunc m
+makeGameCompletion' :: Monad m => Game -> CompletionFunc m
 makeGameCompletion' st = completeWord Nothing [' '] (gameCmplF st)
 
-gameCmplF :: Monad m => (Game, [String]) -> String -> m [Completion]
-gameCmplF (game, _) str' = do
+gameCmplF :: Monad m => Game -> String -> m [Completion]
+gameCmplF game str' = do
         let str = toUpper <$> str' 
         let validWords = filter (isPrefixOf str) (rWords game) -- filter remaining words to possible matches
         let cmpls = case validWords of -- weird behavior with case sensitivity and multiple matches. it autocompletes the caps before suggesting all options

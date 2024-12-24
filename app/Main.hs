@@ -1,6 +1,5 @@
 module Main where
-import Game (testconnections, connections)
-import System.Console.Haskeline (runInputT, defaultSettings)
+import Game (connections)
 
 main :: IO ()
 main = connections

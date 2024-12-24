@@ -2,14 +2,10 @@
 
 module RemoteLoader where
 
-import Network.HTTP.Simple (httpJSON, getResponseStatusCode, getResponseHeader, getResponseBody, httpBS)
-import Data.Aeson (Value, decode)
-import Data.Aeson.Types (Value(..))
+import Network.HTTP.Simple (httpJSON, getResponseBody)
 import Connection (DatedGame)
-import System.Environment (getExecutablePath)
 import System.Directory (getAppUserDataDirectory, createDirectoryIfMissing)
 import System.FilePath ((</>))
-import System.IO (readFile', openFile, IOMode (ReadMode), hGetContents)
 import Control.Exception (try)
 
 

@@ -7,20 +7,16 @@ import Data.Char (toUpper, isSpace)
 import System.Console.Haskeline hiding (display)
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import Data.Maybe (fromMaybe)
-import Control.Monad.State (StateT, MonadState (get, put), MonadTrans (lift), gets, modify, execStateT)
+import Control.Monad.State (MonadState (get, put), MonadTrans (lift), modify, execStateT, gets)
 import Control.Arrow (Arrow(second))
 import Control.Monad (when, void)
-import Data.Function (applyWhen)
 import Data.List (dropWhileEnd, delete)
 import RemoteLoader (getGameData, fetchGames)
-import Data.Bool (bool)
 import Data.Foldable (find)
 import System.FilePath (isValid)
-import Data.Time.Clock (getCurrentTime, UniversalTime (getModJulianDate))
-import Data.Time (UTCTime(..), utcToLocalZonedTime, ZonedTime (ZonedTime), LocalTime (LocalTime))
-import Data.Time.Clock.System (getSystemTime)
-import Data.Time.Calendar.OrdinalDate (fromOrdinalDate)
-import Control.Applicative ((<|>))
+import Data.Time.Clock (getCurrentTime)
+import Data.Time (utcToLocalZonedTime, ZonedTime (ZonedTime), LocalTime (LocalTime))
+import Data.Function (applyWhen)
 
 -- turns a word into a fancy little card. boolean for if it's selected or not
 makeWordCard :: Game -> Bool -> String -> [String]
@@ -68,13 +64,13 @@ displayRemWords game guesses = foldMap ((++ "") . foldMap (++ "\n") . foldr (zip
 displayGuessed  :: Game -> String
 displayGuessed game = foldMap ((++ "") . (\ctn ->
         if fst ctn then makeCategoryCard game $ snd ctn else ""
-    )) (getCtns game)
+    )) (categories game)
 
 -- display the mistakes counter
 displayMistakesLeft :: Game -> String
 displayMistakesLeft game = replicate buf ' ' ++
     foldMap ((++ " ") . \x ->
-        if x > mistakeCount game
+        if x > mistakes game
             then "◯"
             else "\ESC[1;31m◉\ESC[0m"
     ) [1..4]
@@ -85,7 +81,7 @@ displayMistakesLeft game = replicate buf ' ' ++
 displayEndGame :: Game -> String
 displayEndGame game = [fColor fPurple ++ "Perfect!", fColor fCyan ++ "You win yay!",
     fColor fGreen ++ "Good job!", fColor fYellow ++ "That was close!!", fColor fRed ++ "Better luck next time :/"]
-    !! fromIntegral (mistakeCount game) ++ fReset
+    !! fromIntegral (mistakes game) ++ fReset
     ++ "\n" ++ foldMap ((++ "\n") . foldMap (getHeartEmoji . catOfWord game)) ((reverse . guessHistory) game)
 
 -- display the game
@@ -104,8 +100,8 @@ readPuzzle str = mapM (\line -> case words line of
     _ -> Nothing) (lines str)
 
 -- makes a new game with the given connections.
-newGame :: [Connection] -> Game
-newGame ctns = Game (zip (repeat False) ctns) 0 []
+newGame :: [Connection] -> GameMeta -> Game
+newGame ctns = Game (zip (repeat False) ctns) 0 [[]] 
 
 -- takes a game state and a guess string and returns an error message if one is needed
 isValidGuess :: Game -> String -> Bool
@@ -113,20 +109,23 @@ isValidGuess game guess = elem guess $ rWords game
 
 -- reveal all categories for final display
 revealAll :: Game -> Game
-revealAll (Game ctns mistakes gHis) = Game (map (\x -> (True, snd x)) ctns) mistakes gHis
+-- revealAll (Game ctns mis gHis gm) = Game (map (\x -> (True, snd x)) ctns) mis gHis gm
+revealAll game = game { categories = (map (\x -> (True, snd x)) $ categories game)} 
 
--- takes a *valid* guess and a game state and returns a new game state.
+-- applies the guess sitting in GameIO and returns if it was one away 
 makeGuess :: GameIO ()
 makeGuess = do
-    (game, guesses) <- get
-    let newCtns = map (\case
-                    gctn@(True, _) -> gctn -- if it's already guessed just ignore
-                    (False, ctn@(Connection _ _ ws)) -> (all (`elem` guesses) ws, ctn) -- check if the guess contains everything in that category
-                ) (getCtns game)
-    let game' = Game newCtns
-                (if guessedCats newCtns == (guessedCats . getCtns) game -- increment guess counter if 
-                    then mistakeCount game + 1 else mistakeCount game) (guesses:guessHistory game)
-    put (game', [])
+    game <- get
+    let guesses = head $ guessHistory game
+    let newCtns' = map (\case
+                    (True, ctn) -> (4, ctn) -- if it's already guessed just ignore
+                    (False, ctn@(Connection _ _ ws)) -> (length $ filter (`elem` guesses) ws, ctn) -- check if the guess contains everything in that category
+                ) (categories game)
+    let newCtns = map (\(n, ctn) -> (n == 4, ctn)) newCtns'
+    let game' = (applyWhen (guessedCats newCtns == (guessedCats . categories) game) (modifyMistakes (+1))) -- bump mistakes
+                . (modifyGuessHistory ([]:))  -- add guess
+                $ (game {categories = newCtns} ) -- set new connections 
+    put game'
 
 -- prints the help screen
 printHelp :: InputT IO ()
@@ -164,8 +163,9 @@ printTitle = outputStr $ foldMap (++ "\n") [
 -- otherwise dispatches to commands and in-between printing
 doInputLoop :: InputT GameIO () -> InputT GameIO ()
 doInputLoop extInfo = do
-    (game, cGuesses) <- lift get
+    game <- lift get
     -- if showFirst then 
+    let cGuesses = head . guessHistory $ game
     outputStrLn (unwords $ replicate 40 "\n")
     outputStrLn (displayWithGuesses game cGuesses)
     outputStrLn ""
@@ -177,11 +177,12 @@ doInputLoop extInfo = do
     case userInput of
         _ | all (isSpace) userInput -> doInputLoop (return ())
         ":help" -> gameIOT printHelp >> doInputLoop (return ())
-        ":del" -> lift (modify (second (drop 1))) >> doInputLoop (return ())
+        ":del" -> lift (modify (modifyOngoingGuess (drop 1))) >> doInputLoop (return ())
         ":clear" -> startInputLoop
+        ":guesses" -> lift (gets guessHistory) >>= \x -> doInputLoop (mapM_ (outputStrLn . show) x)
         (':':_) -> outputStrLn "Unrecognized Command" >> gameIOT printHelp >> doInputLoop (return ())
-        _ | sGuess `elem` cGuesses -> lift (modify (second (delete sGuess))) >> doInputLoop (return ())
-        _ | isValidGuess game sGuess -> lift (modify (second (sGuess:))) >> when (length cGuesses /= 3) (doInputLoop $ return ())
+        _ | sGuess `elem` cGuesses -> lift (modify (modifyOngoingGuess (delete sGuess))) >> doInputLoop (return ())
+        _ | isValidGuess game sGuess -> lift (modify (modifyOngoingGuess (sGuess:))) >> when (length cGuesses /= 3) (doInputLoop $ return ())
         guess -> doInputLoop (outputStrLn ("Guess \"" ++ guess ++ "\" is not in the game or has already been guessed"))
 
 -- starts the input loop, returning an IO locked final guesses string.
@@ -191,12 +192,12 @@ startInputLoop = doInputLoop (return ())
 -- runs the game loop until the game is over
 doGameLoop :: InputT GameIO ()
 doGameLoop = do
-    origGame <- lift $ gets fst
+    origGame <- lift $ get
     -- Show game state
     outputStrLn (unwords $ replicate 40 "\n")
     outputStrLn $ display origGame
 
-    if (guessedCats . getCtns) origGame == 4 || mistakeCount origGame == 4 then
+    if (guessedCats . categories) origGame == 4 || mistakes origGame == 4 then
         outputStrLn (unwords $ replicate 40 "\n") >>
         (outputStrLn . display . revealAll) origGame >> -- show the 
         (outputStrLn . displayEndGame) origGame -- print like, congrats and emoji grid
@@ -210,7 +211,7 @@ doGameLoop = do
 
 -- runs a game of connections (mostly handling io dispatch)
 runConnectionsGame :: Game -> IO ()
-runConnectionsGame game = void (execStateT gIO (game, []))
+runConnectionsGame game = void (execStateT gIO game)
     where gIO = runInputT (setComplete makeGameCompletion defaultSettings) doGameLoop
     
 
@@ -220,17 +221,8 @@ connections = runInputT defaultSettings $ (do
     outputStrLn (unwords $ replicate 40 "\n")
     printTitle
     getPuzzlePrompt
-    newGame <$> getPuzzle 
+    getPuzzle 
     )>>= (lift . runConnectionsGame)
-
--- a helper function for testing that starts up the game skipping the title/puzzle select screen.
-testconnections :: IO ()
-testconnections = runInputT defaultSettings $ (do
-    fc <- liftIO $ readFile "puzzle447.txt"
-    newGame <$> case readPuzzle fc of
-        (Just ctns) -> return ctns
-        Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle) >>= (lift . runConnectionsGame)
-
 
 -- just the printed part
 getPuzzlePrompt :: InputT IO ()
@@ -250,7 +242,7 @@ getPuzzlePrompt = do
     outputStrLn "  help  -- learn more about the game"
 
 -- prompts the user for a connections puzzle (main screen?)
-getPuzzle :: InputT IO [Connection]
+getPuzzle :: InputT IO Game
 getPuzzle = do
     inp <- (dropWhileEnd isSpace . fromMaybe "") <$> (getInputLine "> ")
     handlePuzzleInput inp
@@ -259,7 +251,7 @@ getPuzzle = do
     --     (Just ctns) -> return ctns
     --     Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle
 
-handlePuzzleInput :: String -> InputT IO [Connection]
+handlePuzzleInput :: String -> InputT IO Game
 handlePuzzleInput inp | (toUpper <$> inp) == "TODAY" = do
     utct <- lift getCurrentTime
     (ZonedTime (LocalTime day _) _) <- lift $ utcToLocalZonedTime utct
@@ -267,14 +259,14 @@ handlePuzzleInput inp | (toUpper <$> inp) == "TODAY" = do
     maybeTodayGame <- maybe (lift $ fetchGames >> getDateGame day) (return . Just) maybeTodayGame' -- re-fetch and re-check
     case maybeTodayGame of
         Nothing -> outputStrLn ("Could not find game for " ++ show day) >> getPuzzle
-        (Just (DatedGame _ _ cns)) -> return cns
+        (Just (DatedGame _ _ cns)) -> return $ newGame cns undefined
     where getDateGame day = find (\(DatedGame _ d _) -> d == (show day)) <$> getGameData
 handlePuzzleInput ('#':gnum') | gnum <- read gnum' :: Int = do
     games <- lift getGameData
     let maybeGame = find (\(DatedGame gid _ _ ) -> gid == gnum) games
     case maybeGame of
         Nothing -> (outputStrLn $ "Couldn't find game #" ++ show gnum ++ ". Try 'fetch' to make sure you have the latest games.") >> getPuzzle
-        (Just (DatedGame _ _ cns)) -> return cns
+        (Just (DatedGame _ _ cns)) -> return $ newGame cns undefined
 handlePuzzleInput "fetch" = do
     lift fetchGames
     games <- lift getGameData
@@ -288,6 +280,6 @@ handlePuzzleInput "help" = printHelp >> getPuzzlePrompt >> getPuzzle
 handlePuzzleInput inp | isValid inp = do
     fc <- liftIO $ readFile inp -- TODO: proper error handling would be nice here.
     case readPuzzle fc of
-        (Just ctns) -> return ctns
+        (Just cns) -> return $ newGame cns undefined
         Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle
 handlePuzzleInput inp = outputStrLn "Unrecognized Input" >> getPuzzle
