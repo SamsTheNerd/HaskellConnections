@@ -5,9 +5,11 @@ import Data.List (isPrefixOf)
 import Data.Char (toUpper, toLower)
 import Control.Monad.State (StateT, gets, state, MonadState (get), MonadTrans (lift), MonadIO (liftIO))
 import Control.Monad.Syntax.Two ((==<<))
+import Data.Aeson
+import qualified Data.Aeson.Key as Key
 
 -- Connection has a label and a list of words in that category. It is expected to have 4 words.
-data Connection = Connection String Char [String] deriving Show
+data Connection = Connection String Char [String] deriving (Show,Read)
 
 -- gets the label of this connection
 lbl :: Connection -> String
@@ -25,6 +27,9 @@ getFormatting ctn = case tier ctn of
     'Y' -> fColor fYellow
     'B' -> fColor fBlue
     _ -> ""
+
+tiers :: String
+tiers = "YGBP"
 
 -- converts a connection into its corresponding square emoji
 getEmoji :: Connection -> String
@@ -114,3 +119,22 @@ matchCaseCmpl :: [a] -> [a] -> [a]
 matchCaseCmpl [] ws = ws
 matchCaseCmpl (g:gs) (_:ws) = g : matchCaseCmpl gs ws
 matchCaseCmpl _ [] = []
+
+
+data DatedGame = DatedGame Int String [Connection] deriving (Show, Read)
+
+-- JSON STUFF
+
+instance FromJSON Connection where
+    parseJSON = withObject "Connection" $ \obj -> do
+        ws <- obj .: Key.fromString "members"
+        label <- obj .: Key.fromString "group"
+        lvl <- obj .: Key.fromString "level"
+        return $ Connection label (tiers !! lvl) ws
+
+instance FromJSON DatedGame where
+    parseJSON = withObject "Game" $ \obj -> do
+        cns <- obj .: Key.fromString "answers"
+        date <- obj .: Key.fromString "date"
+        ident <- obj .: Key.fromString "id"
+        return $ DatedGame ident date cns

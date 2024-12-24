@@ -62,14 +62,15 @@ executable haskellconnections
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules: Game, Styling, Utils, Connection
+    other-modules: Game, Styling, Utils, Connection, RemoteLoader
 
     -- LANGUAGE extensions used by modules in this package.
-    other-extensions: LambdaCase
+    other-extensions: LambdaCase, OverloadedStrings
 
     -- Other library packages from which modules are imported.
     build-depends:    base >=4.20.0.0, haskeline, transformers, 
-                      composition-extra, mtl,
+                      composition-extra, mtl, http-conduit, aeson,
+                      directory, filepath, time
 
     -- Directories containing source files.
     hs-source-dirs:   app

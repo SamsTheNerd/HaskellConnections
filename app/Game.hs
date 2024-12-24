@@ -12,6 +12,15 @@ import Control.Arrow (Arrow(second))
 import Control.Monad (when, void)
 import Data.Function (applyWhen)
 import Data.List (dropWhileEnd, delete)
+import RemoteLoader (getGameData, fetchGames)
+import Data.Bool (bool)
+import Data.Foldable (find)
+import System.FilePath (isValid)
+import Data.Time.Clock (getCurrentTime, UniversalTime (getModJulianDate))
+import Data.Time (UTCTime(..), utcToLocalZonedTime, ZonedTime (ZonedTime), LocalTime (LocalTime))
+import Data.Time.Clock.System (getSystemTime)
+import Data.Time.Calendar.OrdinalDate (fromOrdinalDate)
+import Control.Applicative ((<|>))
 
 -- turns a word into a fancy little card. boolean for if it's selected or not
 makeWordCard :: Game -> Bool -> String -> [String]
@@ -119,16 +128,6 @@ makeGuess = do
                     then mistakeCount game + 1 else mistakeCount game) (guesses:guessHistory game)
     put (game', [])
 
--- prompts the user for a connections puzzle
-getPuzzle :: InputT IO [Connection]
-getPuzzle = do
-    outputStr "Enter Puzzle Filename "
-    filename <- (dropWhileEnd isSpace . fromMaybe "") <$> (getInputLine "> ")
-    fc <- liftIO $ readFile filename -- TODO: proper error handling would be nice here.
-    case readPuzzle fc of
-        (Just ctns) -> return ctns
-        Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle
-
 -- prints the help screen
 printHelp :: InputT IO ()
 printHelp = do
@@ -142,7 +141,7 @@ printHelp = do
     outputStrLn "  :del      --  removes the most recently guessed word from your guess"
     outputStrLn "  :clear    --  clears your current guess"
     outputStrLn "\n[ Press Enter to continue ]"
-    _ <- (getInputLine "> ")
+    _ <- (getInputLine "")
     return ()
 
 -- prints the title screen all pretty
@@ -218,8 +217,11 @@ runConnectionsGame game = void (execStateT gIO (game, []))
 -- start up a game of connections from the title screen
 connections :: IO ()
 connections = runInputT defaultSettings $ (do
-                    outputStrLn (unwords $ replicate 40 "\n"); printTitle
-                    newGame <$> getPuzzle) >>= (lift . runConnectionsGame)
+    outputStrLn (unwords $ replicate 40 "\n")
+    printTitle
+    getPuzzlePrompt
+    newGame <$> getPuzzle 
+    )>>= (lift . runConnectionsGame)
 
 -- a helper function for testing that starts up the game skipping the title/puzzle select screen.
 testconnections :: IO ()
@@ -228,3 +230,64 @@ testconnections = runInputT defaultSettings $ (do
     newGame <$> case readPuzzle fc of
         (Just ctns) -> return ctns
         Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle) >>= (lift . runConnectionsGame)
+
+
+-- just the printed part
+getPuzzlePrompt :: InputT IO ()
+getPuzzlePrompt = do
+    games <- lift getGameData
+    outputStrLn "Start a new game:"
+    outputStrLn "  TODAY         -- Plays todays game"
+    outputStrLn "  <filename>    -- Plays the game found in the file"
+    outputStrLn "  #<int>        -- Plays the given game"
+    outputStr $ ("    " ++ (show . length) games ++ " games loaded") 
+    let (DatedGame gid gdate _) = last games -- should be safe since lazy?
+    when (not $ null games) (outputStr $ " | newest: " ++ gdate)
+    outputStrLn ""
+    outputStrLn "Commands: "
+    outputStrLn "  fetch -- get the newest games"
+    -- outputStrLn "  stats -- see your game stats"
+    outputStrLn "  help  -- learn more about the game"
+
+-- prompts the user for a connections puzzle (main screen?)
+getPuzzle :: InputT IO [Connection]
+getPuzzle = do
+    inp <- (dropWhileEnd isSpace . fromMaybe "") <$> (getInputLine "> ")
+    handlePuzzleInput inp
+    -- fc <- liftIO $ readFile filename -- TODO: proper error handling would be nice here.
+    -- case readPuzzle fc of
+    --     (Just ctns) -> return ctns
+    --     Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle
+
+handlePuzzleInput :: String -> InputT IO [Connection]
+handlePuzzleInput inp | (toUpper <$> inp) == "TODAY" = do
+    utct <- lift getCurrentTime
+    (ZonedTime (LocalTime day _) _) <- lift $ utcToLocalZonedTime utct
+    maybeTodayGame' <- lift $ getDateGame day -- look for game
+    maybeTodayGame <- maybe (lift $ fetchGames >> getDateGame day) (return . Just) maybeTodayGame' -- re-fetch and re-check
+    case maybeTodayGame of
+        Nothing -> outputStrLn ("Could not find game for " ++ show day) >> getPuzzle
+        (Just (DatedGame _ _ cns)) -> return cns
+    where getDateGame day = find (\(DatedGame _ d _) -> d == (show day)) <$> getGameData
+handlePuzzleInput ('#':gnum') | gnum <- read gnum' :: Int = do
+    games <- lift getGameData
+    let maybeGame = find (\(DatedGame gid _ _ ) -> gid == gnum) games
+    case maybeGame of
+        Nothing -> (outputStrLn $ "Couldn't find game #" ++ show gnum ++ ". Try 'fetch' to make sure you have the latest games.") >> getPuzzle
+        (Just (DatedGame _ _ cns)) -> return cns
+handlePuzzleInput "fetch" = do
+    lift fetchGames
+    games <- lift getGameData
+    outputStr $ ("    " ++ (show . length) games ++ " games loaded") 
+    let (DatedGame gid gdate _) = last games -- should be safe since lazy?
+    when (not $ null games) (outputStr $ " | newest: " ++ gdate)
+    outputStrLn ""
+    getPuzzle
+handlePuzzleInput "stats" = undefined
+handlePuzzleInput "help" = printHelp >> getPuzzlePrompt >> getPuzzle
+handlePuzzleInput inp | isValid inp = do
+    fc <- liftIO $ readFile inp -- TODO: proper error handling would be nice here.
+    case readPuzzle fc of
+        (Just ctns) -> return ctns
+        Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle
+handlePuzzleInput inp = outputStrLn "Unrecognized Input" >> getPuzzle
