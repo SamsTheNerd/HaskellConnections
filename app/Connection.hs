@@ -2,7 +2,7 @@
 module Connection where
 import Styling
 import System.Console.Haskeline (CompletionFunc, Completion (Completion), completeWord, InputT, getHistory, defaultSettings, setComplete, runInputT, putHistory)
-import Data.List (isPrefixOf, unsnoc)
+import Data.List (isPrefixOf, unsnoc, uncons)
 import Data.Char (toUpper)
 import Control.Monad.State (StateT, MonadState (get), MonadTrans (lift), MonadIO (liftIO))
 import Control.Monad.Syntax.Two ((==<<))
@@ -110,6 +110,14 @@ modifyOngoingGuess :: ([String] -> [String]) -> Game -> Game
 modifyOngoingGuess f = modifyGuessHistory (\case
         [] -> []
         (x:xs) -> f x: xs)
+
+-- a correct guess would be 0. -1 for none ig? 
+howCloseIsLastGuess :: Game -> Int
+howCloseIsLastGuess game = fromMaybe (-1) $ do
+    guess <- fst <$> (uncons . (drop 1) . guessHistory) game 
+    return $ minimum $ map 
+        (\cat -> (4-) . length . filter ((`elem` cat) . (toUpper <$>)) $ guess)
+        (map (cnwrds . snd) $ categories game)
 
 type GameIO = StateT Game IO
 

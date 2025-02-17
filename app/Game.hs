@@ -175,9 +175,11 @@ doInputLoop extInfo = do
     outputStrLn ""
     extInfo
     outputStrLn "Enter a guess/command or type :help for more info"
+    when (howCloseIsLastGuess game == 1) (outputStrLn "1 away!")
     userInput <- fromMaybe "" <$> getInputLine "> "
 
-    let sGuess = replace (== ' ') (const '_') $ map toUpper userInput
+    -- let sGuess = replace (== ' ') (const '_') $ map toUpper userInput
+    let sGuess = map toUpper userInput
     case userInput of
         _ | all (isSpace) userInput -> doInputLoop (return ())
         ":help" -> gameIOT printHelp >> doInputLoop (return ())
@@ -250,10 +252,6 @@ getPuzzle :: InputT IO Game
 getPuzzle = do
     inp <- (dropWhileEnd isSpace . fromMaybe "") <$> (getInputLine "> ")
     handlePuzzleInput inp
-    -- fc <- liftIO $ readFile filename -- TODO: proper error handling would be nice here.
-    -- case readPuzzle fc of
-    --     (Just ctns) -> return ctns
-    --     Nothing -> outputStrLn "Invalid Puzzle File" >> getPuzzle
 
 handlePuzzleInput :: String -> InputT IO Game
 handlePuzzleInput inp | (toUpper <$> inp) == "TODAY" = do
