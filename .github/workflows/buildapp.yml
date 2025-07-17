@@ -66,6 +66,7 @@ jobs:
         run: cabal check
 
       - name: Upload Build Artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-artifact@v4
         with:
-          path: dist-newstyle/
+            name: haskell-connections-build-${{matrix.os}}
+            path: dist-newstyle/
