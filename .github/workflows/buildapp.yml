@@ -9,12 +9,11 @@ permissions:
 
 jobs:
   build:
-    name: GHC ${{ matrix.ghc-version }} on ${{ matrix.os }}
+    name: GHC on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        ghc-version: ['9.12']
         include:
             - os: ubuntu-latest
               os-readable: linux
@@ -28,11 +27,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up GHC ${{ matrix.ghc-version }}
+      - name: Set up GHC
         uses: haskell-actions/setup@v2
         id: setup
         with:
-          ghc-version: ${{ matrix.ghc-version }}
+          ghc-version: 9.12
           # Defaults, added for clarity:
           cabal-version: 'latest'
           cabal-update: true
@@ -75,6 +74,9 @@ jobs:
 
       - name: Get executable path
         run: echo "HC_EXEC_BUILD_PATH=cabal list-bin haskellconnections" >> $GITHUB_ENV
+
+      - name: Move executable
+        run: cp $HC_EXEC_BUILD_PATH .
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
