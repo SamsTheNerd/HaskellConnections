@@ -72,17 +72,18 @@ jobs:
       - name: Check cabal file
         run: cabal check
 
-      - name: Get executable path
-        run: echo "HC_EXEC_BUILD_PATH=$(cabal list-bin haskellconnections)" >> $GITHUB_ENV
+      - name: Get version numberish
+        id: haskellconnections-version-slug-getter
+        run: echo "HC_EXEC_VERSION_SLUG=$(cabal list-bin haskellconnections | grep -o 'haskellconnections-[0-9.]*')" >> $GITHUB_OUTPUT
 
       - name: Move executable
-        run: cp $HC_EXEC_BUILD_PATH .
+        run: cp $(cabal list-bin haskellconnections) .
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-            name: haskell-connections-build-${{matrix.os-readable}}
+            name: ${{ steps.haskellconnections-version-slug-getter.outputs.HC_EXEC_VERSION_SLUG }}-build-${{matrix.os-readable}}
             path: |
                 haskellconnections
                 readme.md
-                changelog.md
+                CHANGELOG.md
