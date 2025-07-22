@@ -73,7 +73,7 @@ jobs:
         run: cabal check
 
       - name: Get executable path
-        run: echo "HC_EXEC_BUILD_PATH=cabal list-bin haskellconnections" >> $GITHUB_ENV
+        run: echo "HC_EXEC_BUILD_PATH=$(cabal list-bin haskellconnections)" >> $GITHUB_ENV
 
       - name: Move executable
         run: cp $HC_EXEC_BUILD_PATH .
@@ -83,6 +83,6 @@ jobs:
         with:
             name: haskell-connections-build-${{matrix.os-readable}}
             path: |
-                $HC_EXEC_BUILD_PATH
+                haskellconnections
                 readme.md
                 changelog.md
