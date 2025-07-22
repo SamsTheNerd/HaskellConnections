@@ -14,8 +14,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         ghc-version: ['9.12']
+        include:
+            - os: ubuntu-latest
+              os-readable: linux
+            - os: windows-latest
+              os-readable: windows
+            - os: macos-latest
+              os-readable: macos-arm
+            - os: macos-13
+              os-readable: macos-x86
 
     steps:
       - uses: actions/checkout@v4
@@ -65,8 +73,14 @@ jobs:
       - name: Check cabal file
         run: cabal check
 
+      - name: Get executable path
+        run: echo "HC_EXEC_BUILD_PATH=cabal list-bin haskellconnections" >> $GITHUB_ENV
+
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-            name: haskell-connections-build-${{matrix.os}}
-            path: dist-newstyle/
+            name: haskell-connections-build-${{matrix.os-readable}}
+            path: |
+                $HC_EXEC_BUILD_PATH
+                readme.md
+                changelog.md
