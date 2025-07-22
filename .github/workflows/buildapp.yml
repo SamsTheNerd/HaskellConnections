@@ -74,10 +74,7 @@ jobs:
 
       - name: Get version numberish
         id: haskellconnections-version-slug-getter
-        run: echo "HC_EXEC_VERSION_SLUG=$(cabal list-bin haskellconnections | grep -o 'haskellconnections-[0-9.]*')" >> $GITHUB_OUTPUT
-
-      - name: Log version stuff?
-        run: echo $(cabal list-bin haskellconnections | grep -o 'haskellconnections-[0-9.]*')
+        run: echo "HC_EXEC_VERSION_SLUG=$(cabal list-bin haskellconnections | grep -o 'haskellconnections-[0-9.]*')" >> "$GITHUB_OUTPUT"
 
       - name: Move executable
         run: cp $(cabal list-bin haskellconnections) .
