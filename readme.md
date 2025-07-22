@@ -7,17 +7,23 @@ This is a command line version of nyt connections developed with Haskell. It can
 
 ## Install
 
-The easiest method is to go to the [releases page](https://github.com/SamsTheNerd/HaskellConnections/releases), download the appropriate zip for your OS, and run the executable included. 
-
-The files in the releases are compiled [via GitHub Actions](https://github.com/SamsTheNerd/HaskellConnections/actions).
+The easiest method is to go to the [releases page](https://github.com/SamsTheNerd/HaskellConnections/releases), download the appropriate zip for your OS, and run the executable included. The files in the releases are compiled [via GitHub Actions](https://github.com/SamsTheNerd/HaskellConnections/actions).
 
 If for whatever reason that doesn't work for your system, you can download/clone [this repo](https://github.com/SamsTheNerd/HaskellConnections), install cabal via [ghcup](https://www.haskell.org/ghcup/), run `cabal install` from the directory with the `haskellconnections.cabal` file, and then run `haskellconnections`. 
 
 ## Image Gallery 
 
-![The game's startup screen](https://github.com/SamsTheNerd/HaskellConnections/blob/main/startupscreen.png?raw=true)
-![Screenshot of the middle of a game](https://github.com/SamsTheNerd/HaskellConnections/blob/main/gameplayimage.png?raw=true)
-![Screenshot of the win screen](https://github.com/SamsTheNerd/HaskellConnections/blob/main/winscreen.png?raw=true)
+### Startup screen: 
+
+<img src="https://github.com/SamsTheNerd/HaskellConnections/blob/main/startupscreen.png?raw=true" alt="The game's startup screen" width="400"/>
+
+### Gameplay:
+
+<img src="https://github.com/SamsTheNerd/HaskellConnections/blob/main/gameplayimage.png?raw=true" alt="Screenshot of the middle of a game" width="400"/>
+
+### Win Screen: 
+
+<img src="https://github.com/SamsTheNerd/HaskellConnections/blob/main/winscreen.png?raw=true" alt="Screenshot of the win screen" width="400"/>
 
 ## Local File Format
 
