@@ -19,11 +19,11 @@ If for whatever reason that doesn't work for your system, you can download/clone
 
 ### Gameplay:
 
-<img src="https://github.com/SamsTheNerd/HaskellConnections/blob/main/gameplayimage.png?raw=true" alt="Screenshot of the middle of a game" width="400"/>
+<img src="https://github.com/SamsTheNerd/HaskellConnections/blob/main/gameplayimage.png?raw=true" alt="Screenshot of the middle of a game" width="250"/>
 
 ### Win Screen: 
 
-<img src="https://github.com/SamsTheNerd/HaskellConnections/blob/main/winscreen.png?raw=true" alt="Screenshot of the win screen" width="400"/>
+<img src="https://github.com/SamsTheNerd/HaskellConnections/blob/main/winscreen.png?raw=true" alt="Screenshot of the win screen" width="250"/>
 
 ## Local File Format
 
